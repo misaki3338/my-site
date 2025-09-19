@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>リアルタイム将棋</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'MS Gothic', monospace;
+            background: linear-gradient(to right, #dbeafe, #fef3c7, #fecaca);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .game-container {
+            display: flex;
+            align-items: stretch;
+            gap: 30px;
+        }
+        
+        .player-area {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        .player-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        
+        .left-player .player-title {
+            color: #1e40af;
+        }
+        
+        .right-player .player-title {
+            color: #dc2626;
+        }
+        
+        .captured-pieces {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            min-width: 60px;
+            padding: 8px;
+            border-radius: 8px;
+            border: 2px solid;
+        }
+        
+        .left-player .captured-pieces {
+            background: #dbeafe;
+            border-color: #93c5fd;
+        }
+        
+        .right-player .captured-pieces {
+            background: #fecaca;
+            border-color: #fca5a5;
+        }
+        
+        .board-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        .game-title {
+            font-size: 32px;
+            font-weight: bold;
+            color: #92400e;
+            margin-bottom: 20px;
+        }
+        
+        .board {
+            display: grid;
+            grid-template-columns: repeat(9, 1fr);
+            gap: 2px;
+            background: #92400e;
+            padding: 16px;
+            border-radius: 8px;
+            box-shadow: 0 10px 15px rgba(0,0,0,0.1);
+        }
+        
+        .square, .captured-piece {
+            position: relative;
+            width: 48px;
+            height: 48px;
+            border: 2px solid;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 18px;
+            cursor: pointer;
+        }
+        
+        .square {
+            background: #fefce8;
+            border-color: #fde68a;
+        }
+        
+        .captured-piece {
+            background: white;
+            border-color: #d1d5db;
+        }
+        
+        .selected {
+            background: #fde047 !important;
+            border-color: #eab308 !important;
+        }
+        
+        .left-cursor {
+            outline: 4px solid #3b82f6;
+            outline-offset: -4px;
+        }
+        
+        .right-cursor {
+            outline: 4px solid #ef4444;
+            outline-offset: -4px;
+        }
+        
+        .player1 {
+            color: #1e40af;
+        }
+        
+        .player2 {
+            color: #dc2626;
+        }
+        
+        .on-cooldown {
+            opacity: 0.6;
+        }
+        
+        .cooldown-bar {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            background: #ef4444;
+            opacity: 0.7;
+            width: 100%;
+        }
+        
+        .empty-slot {
+            width: 48px;
+            height: 48px;
+            border: 2px dashed #d1d5db;
+        }
+        
+        .instructions {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            font-size: 14px;
+            color: #4b5563;
+            max-width: 400px;
+            line-height: 1.4;
+        }
+        
+        .instructions p {
+            margin-bottom: 4px;
+        }
+        
+        .instructions strong {
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <!-- 左プレイヤーの持ち駒 -->
+        <div class="player-area left-player">
+            <h3 class="player-title">左プレイヤー (WASD + Space)</h3>
+            <div class="captured-pieces" id="leftCaptured">
+                <div class="empty-slot"></div>
+            </div>
+        </div>
+
+        <!-- ゲーム盤面 -->
+        <div class="board-container">
+            <h1 class="game-title">リアルタイム将棋</h1>
+            <div class="board" id="gameBoard"></div>
+        </div>
+
+        <!-- 右プレイヤーの持ち駒 -->
+        <div class="player-area right-player">
+            <h3 class="player-title">右プレイヤー (8456 + Enter)</h3>
+            <div class="captured-pieces" id="rightCaptured">
+                <div class="empty-slot"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="instructions">
+        <p><strong>左プレイヤー:</strong> WASD移動、Space選択/決定</p>
+        <p><strong>右プレイヤー:</strong> 8456移動、Enter選択/決定</p>
+        <p>持ち駒クールタイム: 5秒、赤ゲージで表示</p>
+        <p>敵陣進入時自動成り、王直接取り禁止</p>
+    </div>
+
+    <script>
+        const BOARD_SIZE = 9;
+        const PIECES = {
+            '歩': { name: '歩兵', promoted: 'と', cooldown: 3000 },
+            '香': { name: '香車', promoted: '杏', cooldown: 2500 },
+            '桂': { name: '桂馬', promoted: '圭', cooldown: 2500 },
+            '銀': { name: '銀将', promoted: '全', cooldown: 4000 },
+            '金': { name: '金将', promoted: null, cooldown: 4000 },
+            '角': { name: '角行', promoted: '馬', cooldown: 4000 },
+            '飛': { name: '飛車', promoted: '竜', cooldown: 4000 },
+            '王': { name: '王将', promoted: null, cooldown: 4000 },
+            '玉': { name: '玉将', promoted: null, cooldown: 4000 },
+            'と': { name: 'と金', promoted: null, cooldown: 4000 },
+            '杏': { name: '成香', promoted: null, cooldown: 4000 },
+            '圭': { name: '成桂', promoted: null, cooldown: 4000 },
+            '全': { name: '成銀', promoted: null, cooldown: 4000 },
+            '馬': { name: '龍馬', promoted: null, cooldown: 4000 },
+            '竜': { name: '龍王', promoted: null, cooldown: 4000 }
+        };
+
+        const DROP_COOLDOWN = 5000;
+
+        const initialBoard = [
+            ['香', null, '歩', null, null, null, '歩', null, '香'],
+            ['桂', '飛', '歩', null, null, null, '歩', '角', '桂'],
+            ['銀', null, '歩', null, null, null, '歩', null, '銀'],
+            ['金', null, '歩', null, null, null, '歩', null, '金'],
+            ['王', null, '歩', null, null, null, '歩', null, '玉'],
+            ['金', null, '歩', null, null, null, '歩', null, '金'],
+            ['銀', null, '歩', null, null, null, '歩', null, '銀'],
+            ['桂', '角', '歩', null, null, null, '歩', '飛', '桂'],
+            ['香', null, '歩', null, null, null, '歩', null, '香']
+        ];
+
+        // ゲーム状態
+        let board = initialBoard.map((row, r) => 
+            row.map((piece, c) => ({
+                piece,
+                player: piece ? (c <= 2 ? 1 : c >= 6 ? 2 : null) : null,
+                cooldown: 0
+            }))
+        );
+
+        let capturedPieces = { 1: [], 2: [] };
+        let dropCooldowns = { 1: {}, 2: {} };
+        let currentTime = Date.now();
+
+        let leftCursor = { row: 4, col: 0, mode: 'board' };
+        let rightCursor = { row: 4, col: 8, mode: 'board' };
+
+        let leftSelected = null;
+        let rightSelected = null;
+
+        // 時間更新
+        setInterval(() => {
+            currentTime = Date.now();
+            updateDisplay();
+        }, 50);
+
+        function canMovePiece(row, col) {
+            const square = board[row][col];
+            if (!square.piece) return false;
+            return square.cooldown <= currentTime;
+        }
+
+        function canDropPiece(player, pieceIndex) {
+            const piece = capturedPieces[player][pieceIndex];
+            if (!piece) return false;
+            const captureTime = dropCooldowns[player][pieceIndex];
+            return !captureTime || captureTime <= currentTime;
+        }
+
+        function checkStraightPath(fromRow, fromCol, toRow, toCol, board) {
+            const rowStep = fromRow === toRow ? 0 : (toRow > fromRow ? 1 : -1);
+            const colStep = fromCol === toCol ? 0 : (toCol > fromCol ? 1 : -1);
+            
+            let currentRow = fromRow + rowStep;
+            let currentCol = fromCol + colStep;
+            
+            while (currentRow !== toRow || currentCol !== toCol) {
+                if (board[currentRow][currentCol].piece) return false;
+                currentRow += rowStep;
+                currentCol += colStep;
+            }
+            return true;
+        }
+
+        function checkDiagonalPath(fromRow, fromCol, toRow, toCol, board) {
+            const rowStep = toRow > fromRow ? 1 : -1;
+            const colStep = toCol > fromCol ? 1 : -1;
+            
+            let currentRow = fromRow + rowStep;
+            let currentCol = fromCol + colStep;
+            
+            while (currentRow !== toRow || currentCol !== toCol) {
+                if (board[currentRow][currentCol].piece) return false;
+                currentRow += rowStep;
+                currentCol += colStep;
+            }
+            return true;
+        }
+
+        function canAttackPosition(piece, player, fromRow, fromCol, toRow, toCol, board) {
+            if (toRow < 0 || toRow >= BOARD_SIZE || toCol < 0 || toCol >= BOARD_SIZE) return false;
+            
+            const direction = player === 1 ? 1 : -1;
+            const colDiff = toCol - fromCol;
+            const rowDiff = Math.abs(toRow - fromRow);
+            
+            switch (piece) {
+                case '歩':
+                    return colDiff === direction && rowDiff === 0;
+                case '香':
+                case '杏':
+                    return rowDiff === 0 && colDiff * direction > 0 && checkStraightPath(fromRow, fromCol, toRow, toCol, board);
+                case '桂':
+                case '圭':
+                    return Math.abs(colDiff) === 2 && rowDiff === 1 && colDiff * direction > 0;
+                case '銀':
+                    return Math.abs(rowDiff) <= 1 && Math.abs(colDiff) <= 1 && 
+                           !(colDiff === 0 && rowDiff === 1) && 
+                           !(colDiff === -direction && rowDiff === 0);
+                case '金':
+                case 'と':
+                case '全':
+                    return Math.abs(rowDiff) <= 1 && Math.abs(colDiff) <= 1 && 
+                           !(colDiff === -direction && rowDiff === 1);
+                case '角':
+                    return Math.abs(rowDiff) === Math.abs(colDiff) && checkDiagonalPath(fromRow, fromCol, toRow, toCol, board);
+                case '飛':
+                    return (rowDiff === 0 || colDiff === 0) && checkStraightPath(fromRow, fromCol, toRow, toCol, board);
+                case '馬':
+                    return (Math.abs(rowDiff) === Math.abs(colDiff) && checkDiagonalPath(fromRow, fromCol, toRow, toCol, board)) || 
+                           (Math.abs(rowDiff) <= 1 && Math.abs(colDiff) <= 1);
+                case '竜':
+                    return ((rowDiff === 0 || colDiff === 0) && checkStraightPath(fromRow, fromCol, toRow, toCol, board)) || 
+                           (Math.abs(rowDiff) <= 1 && Math.abs(colDiff) <= 1);
+                case '王':
+                case '玉':
+                    return Math.abs(rowDiff) <= 1 && Math.abs(colDiff) <= 1;
+                default:
+                    return false;
+            }
+        }
+
+        function canPromote(piece, fromCol, toCol, player) {
+            if (!PIECES[piece].promoted) return false;
+            
+            const enemyZone = player === 1 ? [6, 7, 8] : [0, 1, 2];
+            const inEnemyZoneFrom = enemyZone.includes(fromCol);
+            const inEnemyZoneTo = enemyZone.includes(toCol);
+            
+            return inEnemyZoneFrom || inEnemyZoneTo;
+        }
+
+        function isValidMove(fromRow, fromCol, toRow, toCol) {
+            if (toRow < 0 || toRow >= BOARD_SIZE || toCol < 0 || toCol >= BOARD_SIZE) return false;
+            
+            const fromSquare = board[fromRow][fromCol];
+            const toSquare = board[toRow][toCol];
+            
+            if (toSquare.piece && toSquare.player === fromSquare.player) return false;
+            
+            return canAttackPosition(fromSquare.piece, fromSquare.player, fromRow, fromCol, toRow, toCol, board);
+        }
+
+        function handleAction(player) {
+            const cursor = player === 1 ? leftCursor : rightCursor;
+            const selected = player === 1 ? leftSelected : rightSelected;
+
+            if (cursor.mode === 'captured') {
+                const pieceIndex = cursor.row;
+                if (pieceIndex >= 0 && pieceIndex < capturedPieces[player].length) {
+                    if (canDropPiece(player, pieceIndex)) {
+                        if (selected && selected.type === 'captured' && selected.index === pieceIndex) {
+                            if (player === 1) leftSelected = null;
+                            else rightSelected = null;
+                        } else {
+                            if (player === 1) leftSelected = { type: 'captured', index: pieceIndex, piece: capturedPieces[player][pieceIndex] };
+                            else rightSelected = { type: 'captured', index: pieceIndex, piece: capturedPieces[player][pieceIndex] };
+                        }
+                    }
+                }
+            } else {
+                const { row, col } = cursor;
+                
+                if (selected && selected.type === 'captured') {
+                    if (board[row][col].piece) return;
+                    
+                    // 敵の王の位置を探す
+                    const enemyKing = player === 1 ? '玉' : '王';
+                    let enemyKingPos = null;
+                    for (let r = 0; r < BOARD_SIZE; r++) {
+                        for (let c = 0; c < BOARD_SIZE; c++) {
+                            if (board[r][c].piece === enemyKing && board[r][c].player !== player) {
+                                enemyKingPos = { row: r, col: c };
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // 王を直接取れる位置なので配置不可
+                    if (enemyKingPos) {
+                        const testBoard = board.map(r => r.map(c => ({ ...c })));
+                        testBoard[row][col] = { piece: selected.piece, player, cooldown: 0 };
+                        
+                        if (canAttackPosition(selected.piece, player, row, col, enemyKingPos.row, enemyKingPos.col, testBoard)) {
+                            return;
+                        }
+                    }
+                    
+                    board[row][col] = { piece: selected.piece, player, cooldown: 0 };
+                    
+                    capturedPieces[player] = capturedPieces[player].filter((_, idx) => idx !== selected.index);
+                    
+                    dropCooldowns[player][selected.index] = currentTime + DROP_COOLDOWN;
+                    
+                    if (player === 1) leftSelected = null;
+                    else rightSelected = null;
+                } else if (selected && selected.type === 'board') {
+                    const [fromRow, fromCol] = selected.position;
+                    
+                    if (fromRow === row && fromCol === col) {
+                        if (player === 1) leftSelected = null;
+                        else rightSelected = null;
+                        return;
+                    }
+                    
+                    if (!canMovePiece(fromRow, fromCol)) return;
+                    
+                    if (isValidMove(fromRow, fromCol, row, col)) {
+                        const movingPiece = board[fromRow][fromCol];
+                        const targetSquare = board[row][col];
+                        
+                        if (targetSquare.piece) {
+                            const capturedPiece = targetSquare.piece;
+                            let originalPiece = capturedPiece;
+                            if (['と', '杏', '圭', '全', '馬', '竜'].includes(capturedPiece)) {
+                                const reverseMap = { 'と': '歩', '杏': '香', '圭': '桂', '全': '銀', '馬': '角', '竜': '飛' };
+                                originalPiece = reverseMap[capturedPiece];
+                            }
+                            
+                            const newIndex = capturedPieces[player].length;
+                            capturedPieces[player].push(originalPiece);
+                            dropCooldowns[player][newIndex] = currentTime + DROP_COOLDOWN;
+                        }
+                        
+                        let pieceToPlace = movingPiece.piece;
+                        if (canPromote(movingPiece.piece, fromCol, col, movingPiece.player)) {
+                            pieceToPlace = PIECES[movingPiece.piece].promoted;
+                        }
+                        
+                        board[row][col] = {
+                            piece: pieceToPlace,
+                            player: movingPiece.player,
+                            cooldown: currentTime + PIECES[pieceToPlace].cooldown
+                        };
+                        board[fromRow][fromCol] = { piece: null, player: null, cooldown: 0 };
+                    }
+                    
+                    if (player === 1) leftSelected = null;
+                    else rightSelected = null;
+                } else {
+                    if (board[row][col].piece && board[row][col].player === player && canMovePiece(row, col)) {
+                        if (player === 1) leftSelected = { type: 'board', position: [row, col] };
+                        else rightSelected = { type: 'board', position: [row, col] };
+                    }
+                }
+            }
+            updateDisplay();
+        }
+
+        // キーボードイベント
+        document.addEventListener('keydown', (e) => {
+            // 左プレイヤー (WASD + Space)
+            switch(e.key.toLowerCase()) {
+                case 'w':
+                    e.preventDefault();
+                    if (leftCursor.mode === 'captured') {
+                        leftCursor.row = Math.max(0, leftCursor.row - 1);
+                    } else {
+                        leftCursor.row = Math.max(0, leftCursor.row - 1);
+                    }
+                    updateDisplay();
+                    break;
+                case 's':
+                    e.preventDefault();
+                    if (leftCursor.mode === 'captured') {
+                        leftCursor.row = Math.min(Math.max(0, capturedPieces[1].length - 1), leftCursor.row + 1);
+                    } else {
+                        leftCursor.row = Math.min(8, leftCursor.row + 1);
+                    }
+                    updateDisplay();
+                    break;
+                case 'a':
+                    e.preventDefault();
+                    if (leftCursor.mode === 'board') {
+                        if (leftCursor.col === 0) {
+                            leftCursor.mode = 'captured';
+                            leftCursor.row = 0;
+                            leftCursor.col = 0;
+                        } else {
+                            leftCursor.col = Math.max(0, leftCursor.col - 1);
+                        }
+                    }
+                    updateDisplay();
+                    break;
+                case 'd':
+                    e.preventDefault();
+                    if (leftCursor.mode === 'captured') {
+                        leftCursor.mode = 'board';
+                        leftCursor.col = 0;
+                    } else {
+                        leftCursor.col = Math.min(8, leftCursor.col + 1);
+                    }
+                    updateDisplay();
+                    break;
+                case ' ':
+                    e.preventDefault();
+                    handleAction(1);
+                    break;
+            }
+            
+            // 右プレイヤー (8456 + Enter)
+            switch(e.key) {
+                case '8':
+                    e.preventDefault();
+                    if (rightCursor.mode === 'captured') {
+                        rightCursor.row = Math.max(0, rightCursor.row - 1);
+                    } else {
+                        rightCursor.row = Math.max(0, rightCursor.row - 1);
+                    }
+                    updateDisplay();
+                    break;
+                case '5':
+                    e.preventDefault();
+                    if (rightCursor.mode === 'captured') {
+                        rightCursor.row = Math.min(Math.max(0, capturedPieces[2].length - 1), rightCursor.row + 1);
+                    } else {
+                        rightCursor.row = Math.min(8, rightCursor.row + 1);
+                    }
+                    updateDisplay();
+                    break;
+                case '4':
+                    e.preventDefault();
+                    if (rightCursor.mode === 'captured') {
+                        rightCursor.mode = 'board';
+                        rightCursor.col = 8;
+                    } else {
+                        rightCursor.col = Math.max(0, rightCursor.col - 1);
+                    }
+                    updateDisplay();
+                    break;
+                case '6':
+                    e.preventDefault();
+                    if (rightCursor.mode === 'board') {
+                        if (rightCursor.col === 8) {
+                            rightCursor.mode = 'captured';
+                            rightCursor.row = 0;
+                            rightCursor.col = 0;
+                        } else {
+                            rightCursor.col = Math.min(8, rightCursor.col + 1);
+                        }
+                    }
+                    updateDisplay();
+                    break;
+                case 'Enter':
+                    e.preventDefault();
+                    handleAction(2);
+                    break;
+            }
+        });
+
+        function getCooldownProgress(cooldown) {
+            if (cooldown <= currentTime) return 0;
+            const totalCooldown = Math.max(...Object.values(PIECES).map(p => p.cooldown));
+            return Math.min(100, ((cooldown - currentTime) / totalCooldown) * 100);
+        }
+
+        function getDropCooldownProgress(player, pieceIndex) {
+            const cooldown = dropCooldowns[player][pieceIndex];
+            if (!cooldown || cooldown <= currentTime) return 0;
+            return Math.min(100, ((cooldown - currentTime) / DROP_COOLDOWN) * 100);
+        }
+
+        function updateDisplay() {
+            // ゲーム盤面の更新
+            const gameBoard = document.getElementById('gameBoard');
+            gameBoard.innerHTML = '';
+            
+            for (let r = 0; r < BOARD_SIZE; r++) {
+                for (let c = 0; c < BOARD_SIZE; c++) {
+                    const square = board[r][c];
+                    const div = document.createElement('div');
+                    div.className = 'square';
+                    
+                    // 選択状態
+                    const isLeftSelected = leftSelected && leftSelected.type === 'board' && 
+                                         leftSelected.position[0] === r && leftSelected.position[1] === c;
+                    const isRightSelected = rightSelected && rightSelected.type === 'board' && 
+                                          rightSelected.position[0] === r && rightSelected.position[1] === c;
+                    if (isLeftSelected || isRightSelected) {
+                        div.classList.add('selected');
+                    }
+                    
+                    // カーソル
+                    if (leftCursor.mode === 'board' && leftCursor.row === r && leftCursor.col === c) {
+                        div.classList.add('left-cursor');
+                    }
+                    if (rightCursor.mode === 'board' && rightCursor.row === r && rightCursor.col === c) {
+                        div.classList.add('right-cursor');
+                    }
+                    
+                    // 駒
+                    if (square.piece) {
+                        div.textContent = square.piece;
+                        div.classList.add(square.player === 1 ? 'player1' : 'player2');
+                        
+                        // クールダウン
+                        const canMove = canMovePiece(r, c);
+                        if (!canMove) {
+                            div.classList.add('on-cooldown');
+                        }
+                        
+                        const progress = getCooldownProgress(square.cooldown);
+                        if (progress > 0) {
+                            const cooldownBar = document.createElement('div');
+                            cooldownBar.className = 'cooldown-bar';
+                            cooldownBar.style.height = progress + '%';
+                            div.appendChild(cooldownBar);
+                        }
+                    }
+                    
+                    gameBoard.appendChild(div);
+                }
+            }
+            
+            // 持ち駒の更新
+            updateCapturedPieces(1, 'leftCaptured');
+            updateCapturedPieces(2, 'rightCaptured');
+        }
+
+        function updateCapturedPieces(player, elementId) {
+            const container = document.getElementById(elementId);
+            container.innerHTML = '';
+            
+            if (capturedPieces[player].length === 0) {
+                const emptySlot = document.createElement('div');
+                emptySlot.className = 'empty-slot';
+                container.appendChild(emptySlot);
+            } else {
+                capturedPieces[player].forEach((piece, index) => {
+                    const div = document.createElement('div');
+                    div.className = 'captured-piece';
+                    div.textContent = piece;
+                    
+                    // 選択状態
+                    const selected = player === 1 ? leftSelected : rightSelected;
+                    if (selected && selected.type === 'captured' && selected.index === index) {
+                        div.classList.add('selected');
+                    }
+                    
+                    // カーソル
+                    const cursor = player === 1 ? leftCursor : rightCursor;
+                    if (cursor.mode === 'captured' && cursor.row === index) {
+                        div.classList.add(player === 1 ? 'left-cursor' : 'right-cursor');
+                    }
+                    
+                    // クールダウン
+                    const canDrop = canDropPiece(player, index);
+                    if (!canDrop) {
+                        div.classList.add('on-cooldown');
+                    }
+                    
+                    const progress = getDropCooldownProgress(player, index);
+                    if (progress > 0) {
+                        const cooldownBar = document.createElement('div');
+                        cooldownBar.className = 'cooldown-bar';
+                        cooldownBar.style.height = progress + '%';
+                        div.appendChild(cooldownBar);
+                    }
+                    
+                    container.appendChild(div);
+                });
+            }
+        }
+
+        // 初期表示
+        updateDisplay();
+    </script>
+</body>
+</html>
