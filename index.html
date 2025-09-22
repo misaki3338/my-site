@@ -192,7 +192,7 @@
 
         <!-- 右プレイヤーの持ち駒 -->
         <div class="player-area right-player">
-            <h3 class="player-title">右プレイヤー (8456 + Enter)</h3>
+            <h3 class="player-title">右プレイヤー (↑←↓→ + L)</h3>
             <div class="captured-pieces" id="rightCaptured">
                 <div class="empty-slot"></div>
             </div>
@@ -201,7 +201,7 @@
 
     <div class="instructions">
         <p><strong>左プレイヤー:</strong> WASD移動、Space選択/決定</p>
-        <p><strong>右プレイヤー:</strong> 8456移動、Enter選択/決定</p>
+        <p><strong>右プレイヤー:</strong> ↑←↓→移動、L選択/決定</p>
         <p>持ち駒クールタイム: 5秒、赤ゲージで表示</p>
         <p>敵陣進入時自動成り、王直接取り禁止</p>
     </div>
@@ -529,9 +529,9 @@
                     break;
             }
             
-            // 右プレイヤー (8456 + Enter)
+            // 右プレイヤー (↑←↓→ + L)
             switch(e.key) {
-                case '8':
+                case 'ArrowUp':
                     e.preventDefault();
                     if (rightCursor.mode === 'captured') {
                         rightCursor.row = Math.max(0, rightCursor.row - 1);
@@ -540,7 +540,7 @@
                     }
                     updateDisplay();
                     break;
-                case '5':
+                case 'ArrowDown':
                     e.preventDefault();
                     if (rightCursor.mode === 'captured') {
                         rightCursor.row = Math.min(Math.max(0, capturedPieces[2].length - 1), rightCursor.row + 1);
@@ -549,7 +549,7 @@
                     }
                     updateDisplay();
                     break;
-                case '4':
+                case 'ArrowLeft':
                     e.preventDefault();
                     if (rightCursor.mode === 'captured') {
                         rightCursor.mode = 'board';
@@ -559,7 +559,7 @@
                     }
                     updateDisplay();
                     break;
-                case '6':
+                case 'ArrowRight':
                     e.preventDefault();
                     if (rightCursor.mode === 'board') {
                         if (rightCursor.col === 8) {
@@ -572,7 +572,7 @@
                     }
                     updateDisplay();
                     break;
-                case 'Enter':
+                case 'l':
                     e.preventDefault();
                     handleAction(2);
                     break;
